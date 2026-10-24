@@ -2,27 +2,30 @@ import http.client
 import io
 
 import numpy as np
-import pandas as pd
+import pytest
 
 from vitaldb_hemo import data
 
-# Frozen excerpt in the format of https://api.vitaldb.net/trks
-INDEX = pd.read_csv(
-    io.StringIO(
-        "caseid,tname,tid\n"
-        "19,SNUADC/ART,a\n19,CardioQ/FLOW,b\n19,CardioQ/SV,c\n"
-        "20,SNUADC/ART,d\n20,EV1000/SV,e\n"
-        "1602,CardioQ/FLOW,f\n1602,SNUADC/ART,g\n1602,CardioQ/SV,h\n"
-        "3000,CardioQ/FLOW,i\n"
-    )
-)
+INDEX = {
+    "SNUADC/ART": frozenset({19, 20, 1602}),
+    "CardioQ/FLOW": frozenset({19, 1602, 3000}),
+    "CardioQ/SV": frozenset({19, 1602}),
+    "EV1000/SV": frozenset({20}),
+}
 
 
 def test_find_cases():
     assert data.find_cases(["SNUADC/ART"], INDEX) == [19, 20, 1602]
     assert data.find_cases(["CardioQ/FLOW", "CardioQ/SV", "SNUADC/ART"], INDEX) == [19, 1602]
     assert data.find_cases(["CardioQ/FLOW", "EV1000/SV"], INDEX) == []
-    assert data.find_cases(["CardioQ/SV"], INDEX) == [19, 1602]  # no substring matches
+    with pytest.raises(KeyError, match="CardioQ/FLOW"):
+        data.find_cases(["CardioQ/Flow"], INDEX)
+
+
+def test_bundled_track_list():
+    assert len(data.tracks()) == 196
+    cardioq = data.find_cases(["CardioQ/FLOW", "CardioQ/SV", "SNUADC/ART"])
+    assert len(cardioq) == 27 and cardioq[:2] == [19, 468] and 1602 in cardioq
 
 
 def test_download_resumes_dropped_transfers(tmp_path, monkeypatch):

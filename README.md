@@ -9,12 +9,13 @@ Work in progress; nothing is released yet. Done so far: the `data` module.
 ```python
 from vitaldb_hemo import data
 
+names = sorted(data.tracks())  # all 196 track names, e.g. "CardioQ/FLOW"
 cases = data.find_cases(["CardioQ/FLOW", "CardioQ/SV", "SNUADC/ART"])  # 27 cases
-art, fs = data.load_wave(19, "SNUADC/ART")          # 500 Hz, NaN where missing
+art, fs = data.load_wave(19, "SNUADC/ART")  # 500 Hz, NaN where missing
 flow, fs_flow = data.load_wave(19, "CardioQ/FLOW")  # 180 Hz, same clock
-t, sv = data.load_numeric(19, "CardioQ/SV")         # one value per beat
-art125 = data.resample(art, fs, 125)                # anti-aliased
-flags = data.artefact_flags(art, fs)                # dict of boolean masks
+t, sv = data.load_numeric(19, "CardioQ/SV")  # one value per beat
+art125 = data.resample(art, fs, 125)  # anti-aliased
+flags = data.artefact_flags(art, fs)  # dict of boolean masks
 ```
 
 Case files (about 45 MB each) are downloaded on first use and cached in `~/.cache/vitaldb-hemo`, or in the folder named by the `VITALDB_HEMO_CACHE` environment variable.

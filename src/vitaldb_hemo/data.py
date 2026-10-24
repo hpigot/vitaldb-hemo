@@ -3,16 +3,19 @@
 Times are seconds from the start of the case file, which all tracks of a case share.
 """
 
+import difflib
+import functools
+import gzip
 import http.client
 import os
 import shutil
 import urllib.error
 import urllib.request
 from fractions import Fraction
+from importlib import resources
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import vitaldb
 from scipy import ndimage, signal
 
@@ -54,18 +57,27 @@ def _download(url: str, path: Path, tries: int = 30) -> None:
     raise OSError(f"download of {url} failed after {tries} attempts")
 
 
-def track_index() -> pd.DataFrame:
-    """All tracks of all cases (columns caseid, tname, tid), cached in CACHE."""
-    path = CACHE / DATASET_VERSION / "trks.csv.gz"
-    if not path.exists():
-        _download(f"{API}/trks", path)
-    return pd.read_csv(path, compression="gzip")
+@functools.cache
+def tracks() -> dict[str, frozenset[int]]:
+    """Case ids for each track name in VitalDB DATASET_VERSION.
+
+    Bundled with the package: frozen on 2026-10-24 from https://api.vitaldb.net/trks,
+    which vitaldb has deprecated. The dataset version is pinned, so it does not go stale.
+    """
+    text = gzip.decompress((resources.files(__package__) / "tracks-1.0.1.tsv.gz").read_bytes())
+    rows = (line.split("	") for line in text.decode().splitlines())
+    return {name: frozenset(map(int, ids.split())) for name, ids in rows}
 
 
-def find_cases(tracks: list[str], index: pd.DataFrame | None = None) -> list[int]:
-    """Case ids that have every track in tracks (exact names such as "CardioQ/FLOW")."""
-    idx = track_index() if index is None else index
-    return sorted(set.intersection(*(set(idx.caseid[idx.tname == t]) for t in tracks)))
+def find_cases(names: list[str], index: dict[str, frozenset[int]] | None = None) -> list[int]:
+    """Case ids that have every track in names (exact names such as "CardioQ/FLOW")."""
+    idx = tracks() if index is None else index
+    for n in names:
+        if n not in idx:
+            lower = {k.lower(): k for k in idx}
+            close = [lower[c] for c in difflib.get_close_matches(n.lower(), lower, n=3, cutoff=0.5)]
+            raise KeyError(f"no track named {n!r}" + (f"; did you mean {close}?" if close else ""))
+    return sorted(frozenset.intersection(*(idx[n] for n in names)))
 
 
 def case_file(caseid: int) -> Path:

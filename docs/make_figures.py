@@ -21,7 +21,6 @@ def credit(fig):
 
 
 def devices():
-    idx = data.track_index()
     rows = [
         ("CardioQ/FLOW + SV + SNUADC/ART", ["CardioQ/FLOW", "CardioQ/SV", "SNUADC/ART"]),
         ("CardioQ/FLOW", ["CardioQ/FLOW"]),
@@ -30,12 +29,12 @@ def devices():
         ("EV1000/SV", ["EV1000/SV"]),
         ("SNUADC/ART", ["SNUADC/ART"]),
     ]
-    n = [len(data.find_cases(tracks, idx)) for _, tracks in rows]
+    n = [len(data.find_cases(tracks)) for _, tracks in rows]
     fig, ax = plt.subplots(figsize=(7, 2.6))
     bars = ax.barh([r[0] for r in rows], n, color=["C0"] + ["0.65"] * (len(rows) - 1))
     ax.bar_label(bars, padding=3, fontsize=8)
     ax.set_xscale("log")
-    ax.set_xlabel(f"cases (of {idx.caseid.nunique()})")
+    ax.set_xlabel(f"cases (of {len(set().union(*data.tracks().values()))})")
     ax.set_title("VitalDB cases with the tracks: data.find_cases", fontsize=10)
     ax.spines[["top", "right"]].set_visible(False)
     credit(fig)
