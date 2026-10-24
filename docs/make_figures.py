@@ -8,8 +8,9 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import Patch
 
-from vitaldb_hemo import data
+from vitaldb_hemo import beats, cardioq, data
 
 OUT = Path(__file__).parent / "img"
 CREDIT = "Data: VitalDB (Lee et al. 2022), CC BY 4.0"
@@ -106,6 +107,127 @@ def zoom(caseid, art, fs, flags, t0, w, what, slug):
     fig.savefig(OUT / f"case{caseid}_{slug}.png", dpi=120)
 
 
+def beat_features(caseid, t0=7200, w=6):
+    art, fs = data.load_wave(caseid, "SNUADC/ART")
+    p, fs = data.resample(art, fs, 125), 125.0
+    bad = np.any(list(data.artefact_flags(p, fs).values()), axis=0)
+    on = beats.onsets(p, fs)
+    f = beats.features(p, fs, on, bad)
+    hr_t, hr = data.load_numeric(caseid, "Solar8000/HR")
+    print(f"case {caseid}: {len(f)} beats, {f.ok.mean():.1%} ok")
+
+    fig, ax = plt.subplots(1, 2, figsize=(11, 3.4), gridspec_kw={"width_ratios": [1, 1.6]})
+    a, b = int(t0 * fs), int((t0 + w) * fs)
+    ax[0].plot(np.arange(a, b) / fs, p[a:b], "k", lw=0.8)
+    g = f[(f.t >= t0) & (f.t < t0 + w - 1.5)]
+    o = (g.t * fs).round().astype(int)
+    ax[0].plot(g.t, p[o], "v", color="C2", label="onset")
+    ax[0].hlines(g.sbp, g.t, g.t + 60 / g.hr, color="C3", lw=1, label="sbp")
+    ax[0].hlines(g["map"], g.t, g.t + 60 / g.hr, color="C0", lw=1, label="map")
+    ax[0].hlines(g.dbp, g.t, g.t + 60 / g.hr, color="C1", lw=1, label="dbp")
+    ax[0].legend(fontsize=7, ncol=4, loc="center right")
+    ax[0].set_xlabel("time [s]")
+    ax[0].set_ylabel("SNUADC/ART [mmHg]")
+    ax[0].set_title("beats.onsets and beats.features", fontsize=10)
+    ok = f[f.ok]
+    ax[1].plot(ok.t / 60, ok["map"], ".", ms=1, color="C0", label="map, ok beats")
+    ax[1].plot(ok.t / 60, ok.hr, ".", ms=1, color="C2", label="hr from onsets")
+    ax[1].plot(hr_t / 60, hr, "-", lw=0.6, color="k", label="Solar8000/HR (monitor)")
+    ax[1].set_ylim(30, 150)
+    ax[1].set_xlabel("time from start of case file [min]")
+    ax[1].set_ylabel("mmHg, 1/min")
+    ax[1].legend(fontsize=7, markerscale=6, loc="upper right")
+    ax[1].set_title(f"Case {caseid}: {ok.shape[0]} ok beats of {len(f)}", fontsize=10)
+    credit(fig)
+    fig.tight_layout()
+    fig.savefig(OUT / f"case{caseid}_beats.png", dpi=120)
+
+
+REASONS = {
+    "": ("ok", "C2"),
+    "missing": ("missing", "0.6"),
+    "pressure": ("pressure artefact", "C3"),
+    "saturated": ("flow saturated", "C1"),
+    "device": ("no device SV", "C4"),
+    "beats": ("unpaired beats", "C5"),
+    "gain": ("flow off gain", "C9"),
+}
+
+
+def cardioq_windows(caseid, t0):
+    c = cardioq.load(caseid)
+    w = c.windows
+    fig, ax = plt.subplots(2, 1, figsize=(10, 5), gridspec_kw={"height_ratios": [1, 1.6]})
+    for i, (r, (label, color)) in enumerate(REASONS.items()):
+        m = w.reason == r
+        ax[0].broken_barh(
+            list(zip(w.t0[m] / 60, (w.t1 - w.t0)[m] / 60)), (-i - 0.4, 0.8), color=color
+        )
+    ax[0].set_yticks(
+        -np.arange(len(REASONS)),
+        [f"{lab} ({(w.reason == r).sum()})" for r, (lab, _) in REASONS.items()],
+        fontsize=7,
+    )
+    ax[0].set_xlabel("time from start of case file [min]")
+    ax[0].set_title(
+        f"Case {caseid}: cardioq.load windows, {w.ok.sum() * 10 / 3600:.1f} h ok of "
+        f"{len(w) * 10 / 3600:.1f} h",
+        fontsize=10,
+    )
+    t, p, q = c.segment(t0, t0 + 5)
+    ax[1].plot(t, p, "C3", lw=1)
+    ax[1].set_ylabel("p: CardioQ/ABP [mmHg]", color="C3")
+    ax[1].set_xlabel("time [s]")
+    b = ax[1].twinx()
+    b.plot(t, q, "C0", lw=1)
+    b.set_ylabel(f"q: flow [mL/s] = {c.gain:.2f} x CardioQ/FLOW", color="C0")
+    r = w[(w.t0 <= t0) & (w.t1 > t0)].iloc[0]
+    ax[1].set_title(
+        f"One ok window: device SV {r.sv:.0f} mL, HR {r.hr:.0f}/min, flow leads pressure by "
+        f"{r.delay * 1000:.0f} ms",
+        fontsize=10,
+    )
+    credit(fig)
+    fig.tight_layout()
+    fig.savefig(OUT / f"case{caseid}_windows.png", dpi=120)
+
+
+def case_set():
+    ids = cardioq.cases()
+    hours = {cid: cardioq.load(cid).windows.reason.value_counts() * 10 / 3600 for cid in ids}
+    fig, ax = plt.subplots(figsize=(9, 6.5))
+    for i, cid in enumerate(ids):
+        left = 0.0
+        for r, (_, color) in REASONS.items():
+            h = hours[cid].get(r, 0.0)
+            ax.barh(i, h, left=left, color=color, height=0.8)
+            left += h
+    ax.set_yticks(
+        range(len(ids)),
+        [f"{c} (dev)" if c in cardioq.DEVELOPMENT else str(c) for c in ids],
+        fontsize=8,
+    )
+    for lab in ax.get_yticklabels():
+        if "dev" in lab.get_text():
+            lab.set_fontweight("bold")
+    ax.invert_yaxis()
+    ax.set_xlabel("hours")
+    ax.legend(
+        handles=[Patch(color=c, label=lab) for lab, c in REASONS.values()],
+        fontsize=7,
+        loc="lower right",
+    )
+    total = sum(h.get("", 0.0) for h in hours.values())
+    ax.set_title(
+        f"cardioq.cases(): {len(ids)} cases, {total:.0f} h of ok windows; bold: DEVELOPMENT",
+        fontsize=10,
+    )
+    ax.spines[["top", "right"]].set_visible(False)
+    credit(fig)
+    fig.tight_layout()
+    fig.savefig(OUT / "cardioq_cases.png", dpi=120)
+
+
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
     devices()
@@ -113,3 +235,6 @@ if __name__ == "__main__":
     zoom(19, art, fs, flags, 1450, 45, "line zeroing and flush", "flush")
     zoom(19, art, fs, flags, 4600, 45, "NIBP cuff inflated on the arterial-line arm", "cuff")
     case_overview(1602)
+    beat_features(19)
+    cardioq_windows(19, 7200)
+    case_set()
