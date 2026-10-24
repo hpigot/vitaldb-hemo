@@ -159,7 +159,9 @@ def artefact_flags(
     q = np.nan_to_num(p)
     level = ndimage.uniform_filter1d(q, k)
     d = ndimage.uniform_filter1d(q, max(int(0.1 * fs), 1))  # suppresses mains hum and noise
-    std = np.sqrt(np.maximum(ndimage.uniform_filter1d(d * d, k) - level**2, 0))
+    std = np.sqrt(
+        np.maximum(ndimage.uniform_filter1d(d * d, k) - ndimage.uniform_filter1d(d, k) ** 2, 0)
+    )
     zero = np.abs(level) < 10
     grow = np.ones(2 * int(pad * fs) + 1, bool)
 
