@@ -53,7 +53,7 @@ f.theta, f.x0, f.mse  # mmHg s/mL, mL/mmHg, mmHg s/mL; initial state; mmHg^2
 p_model = windkessel.simulate(f.theta, f.x0, q, h, model=windkessel.wk3)
 ```
 
-Without the shift, the fit error roughly doubles. The models describe aortic pressure from total aortic flow; VitalDB gives radial pressure and descending-aortic flow, so the fitted values are not the textbook ones (C comes out at 3-13 mL/mmHg rather than 1-2).
+Without the shift, the fit error roughly doubles. The models describe aortic pressure from total aortic flow; VitalDB gives radial pressure and descending-aortic flow, so the fitted values are not the textbook ones (C ranges from 0.6 to 13 mL/mmHg between windows and cases, against 1-2 for an aortic beat).
 
 `identify.identify` is a local Gauss-Newton fit (`scipy.optimize.least_squares`) that keeps parameters positive; `identify.identify_global` uses the Nelder-Mead simplex, which is slower but forgives a poor start. `free=[1, 1, 0]` holds a parameter fixed, and `x0="periodic"` assumes whole beats. The models and fitter are ported from the Julia package [windkessel-id](https://github.com/hpigot/windkessel-id) and tested against its reference outputs.
 
