@@ -1,10 +1,10 @@
 """The CardioQ case set: aortic flow (oesophageal Doppler) and arterial pressure, cleaned.
 
 Pressure comes from CardioQ/ABP, the arterial-line signal as relayed through the CardioQ
-monitor, because it shares the monitor's clock with CardioQ/FLOW: flow leads it by a
-steady 50-70 ms of pulse transit. SNUADC/ART is the same pressure at 500 Hz, but its offset
-to the CardioQ clock wanders by several hundred ms within minutes, so do not pair it with
-FLOW.
+monitor, because it shares the monitor's clock with CardioQ/FLOW: flow leads it by 40-120
+ms, depending on the patient and steady within a case. SNUADC/ART is the same pressure at
+500 Hz, but its offset to the CardioQ clock wanders by several hundred ms within minutes;
+to pair it with FLOW, align the two in every window first.
 """
 
 from dataclasses import dataclass

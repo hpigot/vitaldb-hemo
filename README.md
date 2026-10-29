@@ -1,8 +1,8 @@
 # vitaldb-hemo
 
-Arterial pressure and aortic blood flow from surgical patients in [VitalDB](https://vitaldb.net), cleaned and ready for modelling, plus Windkessel models and a fitter for them. Starter package for the FRTN70 project course at Lund University, autumn 2026.
+Arterial pressure and aortic blood flow from surgical patients in [VitalDB](https://vitaldb.net), cleaned for modelling, together with Windkessel models of the circulation and a fitter for them. Use it as a starting point if you want to model haemodynamics with real patient data, for example to estimate stroke volume or track changes in vascular resistance during surgery.
 
-Work in progress; nothing is released yet. Done so far: loading and cleaning the data, beat detection, and fitting the models.
+It was first written for the FRTN70 project course at Lund University in autumn 2026, where student groups use it to build and test model-based estimators of stroke volume.
 
 ## Install
 
@@ -32,7 +32,7 @@ The package works with two signals recorded at the same time during surgery, and
 
 ## Quickstart
 
-The three steps below build on each other.
+Each step uses the variables from the one before.
 
 ### 1. Load a case and pick usable windows
 
@@ -73,10 +73,9 @@ The reasons a window is rejected:
 
 ![Usable hours in each case](docs/img/cardioq_cases.png)
 
-Two choices made for you:
+The pressure comes from the track `CardioQ/ABP`. This is the arterial-line pressure as passed on through the CardioQ monitor, so it is recorded on the same clock as the flow. The same pressure is also recorded directly, in `SNUADC/ART` at 500 Hz, but on a clock that drifts against the CardioQ's by several hundred milliseconds within minutes. If you pair `SNUADC/ART` with the flow, align the two in every window first; otherwise the drift shows up as a changing delay.
 
-- **Pressure comes from the track `CardioQ/ABP`.** This is the arterial-line pressure as passed on through the CardioQ monitor, so it is recorded on the same clock as the flow. The same pressure is also recorded directly, in `SNUADC/ART` at 500 Hz, but on a clock that drifts against the CardioQ's by several hundred milliseconds within minutes. Never pair `SNUADC/ART` with the flow.
-- **Flow is scaled to mL/s.** The probe measures velocity in device units. The monitor turns velocity into stroke volume with an aortic cross-section it estimates from the patient's age, height and weight. The package scales the flow once per case so that, over the usable windows, it matches the device stroke volume times heart rate. The column `ratio` shows how well that one scale fits each window: typically within 10 %, although in some cases it drifts by up to 20 % over hours.
+The flow is scaled to mL/s. The probe measures velocity in device units. The monitor turns velocity into stroke volume with an aortic cross-section it estimates from the patient's age, height and weight. The package scales the flow once per case so that, over the usable windows, it matches the device stroke volume times heart rate. The column `ratio` shows how well that one scale fits each window: typically within 10 %, although in some cases it drifts by up to 20 % over hours.
 
 ### 2. Find the beats
 
@@ -108,7 +107,7 @@ p_model = windkessel.simulate(fit.theta, fit.x0, qs, 1 / c.fs, model=windkessel.
 
 The fit simulates the pressure the model produces from the measured flow and adjusts the parameters until it is as close as possible to the measured pressure. It needs a starting guess; `[1.0, 1.5, 0.05]` is in the range of typical adult values. It also estimates `fit.x0`, the volume stored in `C` at the start of the window, which the model cannot know from the flow alone.
 
-Shift by the delay before fitting: the model assumes pressure and flow are measured at the same place, and without the shift the fit error roughly doubles. Even then, the model describes pressure in the aorta, while here pressure is measured at the wrist and flow in the descending aorta only. The fitted values are therefore not the textbook ones: `C` ranges from 0.6 to 13 mL/mmHg between windows and cases, against about 1-2 for a beat measured in the aorta. They are more useful for following one patient over time than for comparing with the literature.
+Shift by the delay before fitting. The model assumes pressure and flow are measured at the same place, and without the shift the fit error roughly doubles. Even then, the model describes pressure in the aorta, while here pressure is measured at the wrist and flow in the descending aorta only. The fitted values are therefore not the textbook ones: `C` ranges from 0.6 to 13 mL/mmHg between windows and cases, against about 1-2 for a beat measured in the aorta. They are more useful for following one patient over time than for comparing with the literature.
 
 More options:
 
@@ -118,7 +117,7 @@ More options:
 
 ## Raw tracks and artefacts
 
-You need this part only to look at other tracks or cases than the cleaned CardioQ set.
+You need this part only if you want tracks or cases outside the cleaned CardioQ set.
 
 ```python
 from vitaldb_hemo import data
@@ -133,13 +132,13 @@ flags = data.artefact_flags(art, fs)  # boolean masks of artefacts, by type
 
 ![Number of VitalDB cases per haemodynamic monitor](docs/img/find_cases.png)
 
-A whole case: the arterial line is zeroed at the start and end, flushed a few times, and occluded by the blood-pressure cuff once an hour. The CardioQ probe is placed about 30 minutes in.
+Over a whole case, the arterial line is zeroed at the start and end, flushed a few times, and occluded by the blood-pressure cuff once an hour. The CardioQ probe is placed about 30 minutes in.
 
 ![Case 19 overview with artefacts shaded](docs/img/case19_overview.png)
 
 ![A line flush: zeroing, then pressure plateaus with no pulse](docs/img/case19_flush.png)
 
-The cuff is easy to miss: the arterial pressure decays for about 20 s with no pulse, while the aortic flow keeps beating as before.
+The cuff inflations are easy to miss. The arterial pressure decays for about 20 s with no pulse, while the aortic flow keeps beating as before.
 
 ![Cuff inflation on the arterial-line arm](docs/img/case19_cuff.png)
 
@@ -150,7 +149,7 @@ uv run pytest  # tests
 uv run python docs/make_figures.py  # regenerate docs/img (downloads the cases it shows)
 ```
 
-The Windkessel models and the fitter are ported from the Julia package [windkessel-id](https://github.com/hpigot/windkessel-id), and the tests check them against its reference outputs.
+The Windkessel models and the fitter are ported from the Julia package [WindkesselIdentification.jl](https://github.com/hpigot/WindkesselIdentification.jl), and the tests check them against its reference outputs.
 
 ## Data licence and attribution
 
