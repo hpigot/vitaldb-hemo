@@ -2,7 +2,7 @@
 
 Arterial pressure and aortic blood flow from surgical patients in [VitalDB](https://vitaldb.net), cleaned for modelling, together with Windkessel models of the circulation and a fitter for them. Use it as a starting point if you want to model haemodynamics with real patient data, for example to estimate stroke volume or track changes in vascular resistance during surgery.
 
-It was first written for the FRTN70 project course at Lund University in autumn 2026, where student groups use it to build and test model-based estimators of stroke volume.
+It was first written for the course FRTN70 Project in Systems, Control and Learning at Lund University in autumn 2026, where student groups use it to build and test model-based estimators of stroke volume.
 
 ## Install
 
