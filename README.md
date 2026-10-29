@@ -176,6 +176,8 @@ uv run pytest  # tests
 uv run python docs/make_figures.py  # regenerate docs/img (downloads the cases it shows)
 ```
 
+`examples/case19.ipynb` runs one case through the four quickstart steps with plots. It is run by hand, since it downloads data. The main design choices are recorded in [`docs/adr`](docs/adr).
+
 The Windkessel models and the fitter are ported from the Julia package [WindkesselIdentification.jl](https://github.com/hpigot/WindkesselIdentification.jl), and the tests check them against its reference outputs.
 
 ## Data licence and attribution
