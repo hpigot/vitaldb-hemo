@@ -109,11 +109,38 @@ The fit simulates the pressure the model produces from the measured flow and adj
 
 Shift by the delay before fitting. The model assumes pressure and flow are measured at the same place, and without the shift the fit error roughly doubles. Even then, the model describes pressure in the aorta, while here pressure is measured at the wrist and flow in the descending aorta only. The fitted values are therefore not the textbook ones: `C` ranges from 0.6 to 13 mL/mmHg between windows and cases, against about 1-2 for a beat measured in the aorta. They are more useful for following one patient over time than for comparing with the literature.
 
+![3-element fits over the development cases](docs/img/development_fits.png)
+
+Fitted on every usable window, `Rp` and `Rc` change slowly within a case, while `C` scatters by a factor of 2 to 3 from one window to the next and its 10 min median jumps. A value of `C` taken from a single 10 s window is therefore a poor calibration; take the median over several minutes.
+
 More options:
 
 - `identify.identify_global` uses the Nelder-Mead method. It is slower but copes better with a poor starting guess.
 - `free=[1, 1, 0]` keeps a parameter fixed at its starting value.
 - `x0="periodic"` assumes the window holds whole beats in a steady state, instead of estimating `x0`.
+
+### 4. Compare with the device
+
+`evaluate` measures how well a stroke volume estimate agrees with the device stroke volume. As an example, a simple baseline: stroke volume proportional to pulse pressure, with the factor calibrated on the first 5 usable minutes.
+
+```python
+import numpy as np
+
+from vitaldb_hemo import evaluate
+
+f = beats.features(c.p, c.fs, beats.onsets(c.p, c.fs))  # beats of the whole case
+pp = f[f.ok].groupby(f.t // 10 * 10).pp.mean()  # mean pulse pressure per window, by t0
+est = pp.reindex(w.t0).to_numpy() * np.mean(w.sv[:30] / pp.reindex(w.t0[:30]).to_numpy())
+a = evaluate.agreement(est[30:], w.sv[30:])
+a.bias, a.loa, a.percentage_error  # mL, mL, %
+rate, n = evaluate.concordance(est[30::30], w.sv[30::30])  # direction of 5 min changes
+```
+
+`agreement` gives the Bland-Altman bias and 95 % limits of agreement, and the percentage error, 1.96 standard deviations of the difference divided by the mean device value. Monitors of cardiac output are usually held to a percentage error under 30 %. When you pool several cases, pass `subject=` with the case of each value: several values from one patient are not independent, and the limits would otherwise come out too narrow. `concordance` counts how often the estimate changes in the same direction as the device, leaving out changes under 15 %; above 0.9 is the usual criterion.
+
+![Agreement of the pulse-pressure baseline on the development cases](docs/img/development_baseline.png)
+
+On the development cases, the pulse-pressure baseline has a percentage error of 44 % pooled (23-36 % within single cases) and a concordance of 0.72 for 5 min changes. Holding stroke volume constant at its calibration value gives 70 %. A model-based estimate should do better than both.
 
 ## Raw tracks and artefacts
 

@@ -8,9 +8,10 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.patches import Patch
 
-from vitaldb_hemo import beats, cardioq, data
+from vitaldb_hemo import beats, cardioq, data, evaluate, identify, windkessel
 
 OUT = Path(__file__).parent / "img"
 CREDIT = "Data: VitalDB (Lee et al. 2022), CC BY 4.0"
@@ -228,6 +229,74 @@ def case_set():
     fig.savefig(OUT / "cardioq_cases.png", dpi=120)
 
 
+def development_windows():
+    """One row per usable window of the development cases: device SV, pulse pressure, 3-element fit."""
+    rows = []
+    for cid in cardioq.DEVELOPMENT:
+        c = cardioq.load(cid)
+        f = beats.features(c.p, c.fs, beats.onsets(c.p, c.fs))
+        pp = f[f.ok].groupby(f.t // 10 * 10).pp.mean()
+        for r in c.windows[c.windows.ok].itertuples():
+            _, p, q = c.segment(r.t0, r.t1)
+            k = round(r.delay * c.fs)
+            fit = identify.identify(
+                [1.0, 1.5, 0.05], q[: len(q) - k], p[k:], 1 / c.fs, windkessel.wk3
+            )
+            rows.append((cid, r.t0, r.sv, pp.get(r.t0, np.nan), *fit.theta))
+    return pd.DataFrame(rows, columns=["case", "t0", "sv", "pp", "rp", "c", "rc"])
+
+
+def fits_over_time(d):
+    fig, ax = plt.subplots(3, 1, figsize=(10, 6.5), sharex=True)
+    for i, (cid, g) in enumerate(d.groupby("case")):
+        m = g.set_index("t0")[["rp", "c", "rc"]].rolling(60, center=True, min_periods=20).median()
+        for a, col in zip(ax, ["rp", "c", "rc"]):
+            a.plot(g.t0 / 3600, g[col], ".", ms=1, color=f"C{i}", alpha=0.25)
+            a.plot(m.index / 3600, m[col], color=f"C{i}", lw=1.5, label=f"case {cid}")
+    for a, lab, top in zip(ax, ["Rp [mmHg s/mL]", "C [mL/mmHg]", "Rc [mmHg s/mL]"], [2.5, 10, 0.3]):
+        a.set_ylabel(lab, fontsize=8)
+        a.set_ylim(0, top)
+    ax[0].legend(fontsize=7, ncol=4, loc="upper right")
+    ax[2].set_xlabel("time from start of case file [h]")
+    ax[0].set_title(
+        "3-element fits on every usable window of the development cases (dots), 10 min medians (lines)",
+        fontsize=10,
+    )
+    credit(fig)
+    fig.tight_layout()
+    fig.savefig(OUT / "development_fits.png", dpi=120)
+
+
+def baseline_agreement(d):
+    """Pulse-pressure baseline: SV = k PP, k from the first 5 usable minutes, 1 min means."""
+    parts = []
+    for cid, g in d.dropna().sort_values("t0").groupby("case"):
+        k = (g.sv / g.pp).iloc[:30].mean()
+        g = g.iloc[30:].assign(est=k * g.pp.iloc[30:], minute=g.t0.iloc[30:] // 60)
+        parts.append(g.groupby("minute")[["sv", "est"]].mean().assign(case=cid))
+    e = pd.concat(parts)
+    a = evaluate.agreement(e.est, e.sv, e.case)
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    for i, (cid, g) in enumerate(e.groupby("case")):
+        ax.plot((g.est + g.sv) / 2, g.est - g.sv, ".", ms=3, color=f"C{i}", label=f"case {cid}")
+    for v, ls in [(a.bias, "-"), (a.loa[0], "--"), (a.loa[1], "--")]:
+        ax.axhline(v, color="k", lw=1, ls=ls)
+    ax.text(ax.get_xlim()[1], a.loa[1], " upper LoA", va="bottom", ha="right", fontsize=7)
+    ax.text(ax.get_xlim()[1], a.loa[0], " lower LoA", va="top", ha="right", fontsize=7)
+    ax.set_xlabel("mean of estimate and device SV [mL]")
+    ax.set_ylabel("estimate - device SV [mL]")
+    ax.set_title(
+        f"Pulse-pressure baseline: bias {a.bias:+.0f} mL, limits {a.loa[0]:.0f} to {a.loa[1]:+.0f} mL, "
+        f"percentage error {a.percentage_error:.0f} %",
+        fontsize=9,
+    )
+    ax.legend(fontsize=7, markerscale=2, loc="lower left")
+    ax.spines[["top", "right"]].set_visible(False)
+    credit(fig)
+    fig.tight_layout()
+    fig.savefig(OUT / "development_baseline.png", dpi=120)
+
+
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
     devices()
@@ -238,3 +307,6 @@ if __name__ == "__main__":
     beat_features(19)
     cardioq_windows(19, 7200)
     case_set()
+    d = development_windows()
+    fits_over_time(d)
+    baseline_agreement(d)
