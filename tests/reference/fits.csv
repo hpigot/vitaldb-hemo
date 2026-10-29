@@ -1,0 +1,9 @@
+# WindkesselIdentification.jl reference outputs. Units: mmHg, mL/s, s; θ = [Rp, C, Rc, L] in
+# mmHg s/mL, mL/mmHg, mmHg s/mL, mmHg s^2/mL. Data: load_stergiopulos1999() (one beat, h = 0.005 s).
+# x0 is the periodic initial state from solvex0: x1 the volume on C [mL], x2 = L i_L (WK4 only).
+# identify(...; x0id=false, x0solve=true) from θ0 = [0.85, 1.5, 0.05, 0.006] (truncated per model).
+# MSE = sum of squared pressure errors / number of samples [mmHg^2]. NaN: not in the model.
+model,Rp,C,Rc,L,x0_1,x0_2,MSE
+wk2,0.8024371052580873,1.681448054913216,NaN,NaN,122.61187843121976,NaN,46.53659035530481
+wk3,0.7691053695103925,1.8125226103570367,0.03390844020745088,NaN,127.59733008334798,NaN,8.342303404456922
+wk4,0.8028634605521204,1.247832146521652,0.05615746240583698,0.0054700972722066445,84.08049903822875,0.04566294310513363,5.738862792184617

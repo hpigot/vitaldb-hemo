@@ -2,7 +2,7 @@
 
 Haemodynamic signals from [VitalDB](https://vitaldb.net) and Windkessel model identification in Python. Starter package for the FRTN70 project course at Lund University, autumn 2026.
 
-Work in progress; nothing is released yet. Done so far: `data`, `beats` and `cardioq`.
+Work in progress; nothing is released yet. Done so far: `data`, `beats`, `cardioq`, `windkessel` and `identify`.
 
 ## Start here: pressure and flow, cleaned
 
@@ -38,6 +38,24 @@ f = beats.features(c.p, c.fs, on)  # t, sbp, dbp, map, pp, hr, dpdt_max, ok
 ```
 
 ![Onsets and per-beat features](docs/img/case19_beats.png)
+
+## Windkessel models and fitting
+
+`windkessel` has the 2-, 3- and 4-element models from aortic flow to pressure, and `identify` fits them by output error: it simulates pressure from the measured flow and minimises the squared difference to the measured pressure. Both depend on numpy and scipy only.
+
+```python
+from vitaldb_hemo import identify, windkessel
+
+h, k = 1 / c.fs, round(ok.delay.iloc[0] * c.fs)  # delay from flow to pressure, in samples
+q, p = q[: len(q) - k], p[k:]  # undo the pulse transit
+f = identify.identify([1.0, 1.5, 0.05], q, p, h, model=windkessel.wk3)  # theta = [Rp, C, Rc]
+f.theta, f.x0, f.mse  # mmHg s/mL, mL/mmHg, mmHg s/mL; initial state; mmHg^2
+p_model = windkessel.simulate(f.theta, f.x0, q, h, model=windkessel.wk3)
+```
+
+Without the shift, the fit error roughly doubles. The models describe aortic pressure from total aortic flow; VitalDB gives radial pressure and descending-aortic flow, so the fitted values are not the textbook ones (C comes out at 3-13 mL/mmHg rather than 1-2).
+
+`identify.identify` is a local Gauss-Newton fit (`scipy.optimize.least_squares`) that keeps parameters positive; `identify.identify_global` uses the Nelder-Mead simplex, which is slower but forgives a poor start. `free=[1, 1, 0]` holds a parameter fixed, and `x0="periodic"` assumes whole beats. The models and fitter are ported from the Julia package [windkessel-id](https://github.com/hpigot/windkessel-id) and tested against its reference outputs.
 
 ## Raw data and artefacts
 
