@@ -51,9 +51,7 @@ def features(
     """One row per beat (onset to next onset) of arterial pressure p [mmHg] at fs [Hz].
 
     t: onset time [s]; sbp, dbp, map, pp [mmHg]; hr [1/min]; dpdt_max [mmHg/s], from the
-    16 Hz low-pass signal; sys_area [mmHg s]: area above dbp from onset to an ejection time
-    estimated as 0.413 - 0.0017 hr seconds (Weissler 1968). ok is False for beats with
-    NaNs, a heart rate outside 30-200/min (missed or extra onsets), or any sample in bad
+    16 Hz low-pass signal. ok is False for beats with NaNs, a heart rate outside 30-200/min (missed or extra onsets), or any sample in bad
     (e.g. the union of data.artefact_flags).
     """
     a, b = on[:-1], on[1:]
@@ -68,10 +66,6 @@ def features(
     mean = (c[b] - c[a]) * fs / n
     hr = 60 * fs / n
     dpdt = np.maximum.reduceat(np.gradient(_lowpass(p, fs)) * fs, a)[: len(a)]
-    # ponytail: ejection time from a heart-rate regression, not the dicrotic notch;
-    # detect the notch if systolic area turns out to matter
-    e = np.clip(a + np.round((0.413 - 0.0017 * hr) * fs).astype(int), a, b)
-    sys_area = c[e] - c[a] - pmin * (e - a) / fs
     nan = csum(np.isnan(p))
     ok = (nan[b] == nan[a]) & (hr >= 30) & (hr <= 200)
     if bad is not None:
@@ -86,7 +80,6 @@ def features(
             "pp": pmax - pmin,
             "hr": hr,
             "dpdt_max": dpdt,
-            "sys_area": sys_area,
             "ok": ok,
         }
     )

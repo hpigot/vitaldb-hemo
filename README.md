@@ -34,7 +34,7 @@ How the case is cleaned:
 from vitaldb_hemo import beats
 
 on = beats.onsets(c.p, c.fs)  # Zong et al. 2003, sample indices
-f = beats.features(c.p, c.fs, on)  # t, sbp, dbp, map, pp, hr, dpdt_max, sys_area, ok
+f = beats.features(c.p, c.fs, on)  # t, sbp, dbp, map, pp, hr, dpdt_max, ok
 ```
 
 ![Onsets and per-beat features](docs/img/case19_beats.png)
