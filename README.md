@@ -1,76 +1,135 @@
 # vitaldb-hemo
 
-Haemodynamic signals from [VitalDB](https://vitaldb.net) and Windkessel model identification in Python. Starter package for the FRTN70 project course at Lund University, autumn 2026.
+Arterial pressure and aortic blood flow from surgical patients in [VitalDB](https://vitaldb.net), cleaned and ready for modelling, plus Windkessel models and a fitter for them. Starter package for the FRTN70 project course at Lund University, autumn 2026.
 
-Work in progress; nothing is released yet. Done so far: `data`, `beats`, `cardioq`, `windkessel` and `identify`.
+Work in progress; nothing is released yet. Done so far: loading and cleaning the data, beat detection, and fitting the models.
 
-## Start here: pressure and flow, cleaned
+## Install
 
-27 VitalDB cases have aortic blood flow from an oesophageal Doppler monitor (CardioQ) next to arterial pressure; 24 of them are usable. `cardioq.load` gives you both on one clock, flow scaled to mL/s, and a table of 10 s windows saying which ones are usable and, if not, why.
+Python 3.10 or later:
+
+```sh
+pip install git+https://github.com/hpigot/vitaldb-hemo
+```
+
+The data is not in the package. Each case is downloaded from VitalDB the first time you load it (about 45 MB) and kept in `~/.cache/vitaldb-hemo`, or in the folder named by the environment variable `VITALDB_HEMO_CACHE`.
+
+## The signals
+
+The package works with two signals recorded at the same time during surgery, and the monitor's own estimates that come with them.
+
+| Term | What it is |
+|---|---|
+| pressure `p` [mmHg] | Arterial blood pressure from a catheter in an artery, usually the radial artery at the wrist. |
+| flow `q` [mL/s] | Blood flow in the descending aorta, from a Doppler probe placed in the oesophagus (the CardioQ monitor). The probe measures blood velocity; the package scales it to flow. |
+| device SV, HR | The CardioQ monitor's own stroke volume [mL] and heart rate [1/min], beat by beat. These are the reference values you compare your estimates with. |
+| delay [s] | The time from the start of a beat in the flow to the start of the same beat in the pressure: the pulse has to travel from the descending aorta to the wrist (pulse transit), plus any processing lag in the monitors. 40-120 ms, steady within a case. |
+| case | One surgery, recorded as one file of several hours. |
+| track | One signal in a case, named device/signal, e.g. `CardioQ/FLOW`. |
+| window | A 10 s piece of a case, the unit that is judged usable or not. |
+
+27 VitalDB cases have both CardioQ flow and arterial pressure; 24 of them are usable.
+
+## Quickstart
+
+The three steps below build on each other.
+
+### 1. Load a case and pick usable windows
 
 ```python
 from vitaldb_hemo import cardioq
 
-cardioq.cases()  # the 24 usable cases; cardioq.EXCLUDED says why the other 3 are not
-cardioq.DEVELOPMENT  # [19, 468, 963, 1602]: tune on these, evaluate on the rest
-c = cardioq.load(19)  # downloads the case on first use (about 45 MB)
-ok = c.windows[c.windows.ok]  # t0, t1, beats, map, hr, sv, delay, ratio, reason
-t, p, q = c.segment(ok.t0.iloc[0], ok.t1.iloc[0])  # s, mmHg, mL/s
+cardioq.cases()  # the 24 usable cases
+cardioq.DEVELOPMENT  # [19, 468, 963, 1602]: develop your methods on these, evaluate on the rest
+c = cardioq.load(19)  # c.p, c.q (whole case), c.fs = 180 Hz, c.windows
+w = c.windows[c.windows.ok]  # usable windows only, as a pandas DataFrame
+t, p, q = c.segment(w.t0.iloc[0], w.t1.iloc[0])  # time [s], pressure, flow of the first one
 ```
 
 ![Case 19: which 10 s windows are usable, and one of them](docs/img/case19_windows.png)
 
+`c.windows` has one row per window:
+
+| Column | Meaning |
+|---|---|
+| `t0`, `t1` | Start and end of the window [s from the start of the case]. |
+| `beats` | Number of beats in the pressure. |
+| `map` | Mean arterial pressure [mmHg]. |
+| `hr`, `sv` | Device heart rate [1/min] and stroke volume [mL], averaged over the window. |
+| `delay` | Median delay from flow to pressure [s], accurate to about 20 ms. |
+| `ratio` | How well the case's flow scale fits this window (1 is perfect; see below). |
+| `ok`, `reason` | Whether the window is usable, and if not, the first check it failed. |
+
+The reasons a window is rejected:
+
+| `reason` | What happened |
+|---|---|
+| `missing` | Samples missing in the pressure or the flow. |
+| `pressure` | A pressure artefact: the line was flushed or zeroed, or the blood-pressure cuff was inflated on the same arm (see [Raw tracks and artefacts](#raw-tracks-and-artefacts)). |
+| `saturated` | The flow signal is stuck at its maximum. This is typical of the first 30-100 minutes, before the probe is placed. |
+| `device` | The monitor gave no valid stroke volume or heart rate. |
+| `beats` | A pressure beat with no flow beat 0-250 ms before it. |
+| `gain` | The flow is more than 20 % out of proportion to the device stroke volume, typically because the probe has moved. |
+
 ![Usable hours in each case](docs/img/cardioq_cases.png)
 
-How the case is cleaned:
+Two choices made for you:
 
-- **Pressure is CardioQ/ABP**, the arterial-line signal relayed through the CardioQ monitor at 180 Hz, because it shares a clock with the flow: flow leads it by 40-120 ms of pulse transit, depending on the patient and steady within a case. The original SNUADC/ART (500 Hz) drifts against the CardioQ clock by several hundred milliseconds within minutes, so never pair it with CardioQ/FLOW.
-- **Flow in mL/s.** CardioQ/FLOW is a Doppler velocity in device units. It is scaled once per case so that mean flow matches the monitor's own stroke volume times heart rate. The window column `ratio` shows how well that one scale fits each window: typically within 10 %, though in some cases it drifts by up to 20 % over hours.
-- **Windows are rejected** for missing samples, pressure artefacts (below), flow at its ceiling (probe not yet placed), no valid stroke volume from the monitor, pressure beats without a matching flow beat, and flow out of proportion to the monitor's stroke volume (probe out of focus).
+- **Pressure comes from the track `CardioQ/ABP`.** This is the arterial-line pressure as passed on through the CardioQ monitor, so it is recorded on the same clock as the flow. The same pressure is also recorded directly, in `SNUADC/ART` at 500 Hz, but on a clock that drifts against the CardioQ's by several hundred milliseconds within minutes. Never pair `SNUADC/ART` with the flow.
+- **Flow is scaled to mL/s.** The probe measures velocity in device units. The monitor turns velocity into stroke volume with an aortic cross-section it estimates from the patient's age, height and weight. The package scales the flow once per case so that, over the usable windows, it matches the device stroke volume times heart rate. The column `ratio` shows how well that one scale fits each window: typically within 10 %, although in some cases it drifts by up to 20 % over hours.
 
-## Beats
+### 2. Find the beats
 
 ```python
 from vitaldb_hemo import beats
 
-on = beats.onsets(c.p, c.fs)  # Zong et al. 2003, sample indices
-f = beats.features(c.p, c.fs, on)  # t, sbp, dbp, map, pp, hr, dpdt_max, ok
+on = beats.onsets(p, c.fs)  # sample index where each beat's upstroke starts
+f = beats.features(p, c.fs, on)  # one row per beat
 ```
+
+Onsets are found with the method of Zong et al. (2003). The features of each beat are its time `t` [s], systolic, diastolic, mean and pulse pressure `sbp`, `dbp`, `map`, `pp` [mmHg], heart rate `hr` [1/min], the steepest slope of the upstroke `dpdt_max` [mmHg/s], and `ok`, which is false for beats with missing samples or an implausible heart rate. `beats.onsets(q, c.fs)` finds the beats in the flow the same way.
 
 ![Onsets and per-beat features](docs/img/case19_beats.png)
 
-## Windkessel models and fitting
+### 3. Fit a Windkessel model
 
-`windkessel` has the 2-, 3- and 4-element models from aortic flow to pressure, and `identify` fits them by output error: it simulates pressure from the measured flow and minimises the squared difference to the measured pressure. Both depend on numpy and scipy only.
+A Windkessel model treats the arteries as an electrical circuit driven by the flow: a compliance `C` [mL/mmHg] for the elastic arteries that store blood during each beat, a peripheral resistance `Rp` [mmHg s/mL] for the small vessels it drains through, and in the 3-element model a characteristic resistance `Rc` [mmHg s/mL] for the aorta itself. The 2-element model leaves out `Rc`; the 4-element model adds an inertance `L` [mmHg s^2/mL].
 
 ```python
 from vitaldb_hemo import identify, windkessel
 
-h, k = 1 / c.fs, round(ok.delay.iloc[0] * c.fs)  # delay from flow to pressure, in samples
-q, p = q[: len(q) - k], p[k:]  # undo the pulse transit
-f = identify.identify([1.0, 1.5, 0.05], q, p, h, model=windkessel.wk3)  # theta = [Rp, C, Rc]
-f.theta, f.x0, f.mse  # mmHg s/mL, mL/mmHg, mmHg s/mL; initial state; mmHg^2
-p_model = windkessel.simulate(f.theta, f.x0, q, h, model=windkessel.wk3)
+k = round(w.delay.iloc[0] * c.fs)  # the window's delay, in samples
+qs, ps = q[: len(q) - k], p[k:]  # shift the pressure back so the beats line up with the flow
+fit = identify.identify([1.0, 1.5, 0.05], qs, ps, 1 / c.fs, model=windkessel.wk3)
+fit.theta  # fitted [Rp, C, Rc]
+fit.mse  # mean squared error between measured and model pressure [mmHg^2]
+p_model = windkessel.simulate(fit.theta, fit.x0, qs, 1 / c.fs, model=windkessel.wk3)
 ```
 
-Without the shift, the fit error roughly doubles. The models describe aortic pressure from total aortic flow; VitalDB gives radial pressure and descending-aortic flow, so the fitted values are not the textbook ones (C ranges from 0.6 to 13 mL/mmHg between windows and cases, against 1-2 for an aortic beat).
+The fit simulates the pressure the model produces from the measured flow and adjusts the parameters until it is as close as possible to the measured pressure. It needs a starting guess; `[1.0, 1.5, 0.05]` is in the range of typical adult values. It also estimates `fit.x0`, the volume stored in `C` at the start of the window, which the model cannot know from the flow alone.
 
-`identify.identify` is a local Gauss-Newton fit (`scipy.optimize.least_squares`) that keeps parameters positive; `identify.identify_global` uses the Nelder-Mead simplex, which is slower but forgives a poor start. `free=[1, 1, 0]` holds a parameter fixed, and `x0="periodic"` assumes whole beats. The models and fitter are ported from the Julia package [windkessel-id](https://github.com/hpigot/windkessel-id) and tested against its reference outputs.
+Shift by the delay before fitting: the model assumes pressure and flow are measured at the same place, and without the shift the fit error roughly doubles. Even then, the model describes pressure in the aorta, while here pressure is measured at the wrist and flow in the descending aorta only. The fitted values are therefore not the textbook ones: `C` ranges from 0.6 to 13 mL/mmHg between windows and cases, against about 1-2 for a beat measured in the aorta. They are more useful for following one patient over time than for comparing with the literature.
 
-## Raw data and artefacts
+More options:
+
+- `identify.identify_global` uses the Nelder-Mead method. It is slower but copes better with a poor starting guess.
+- `free=[1, 1, 0]` keeps a parameter fixed at its starting value.
+- `x0="periodic"` assumes the window holds whole beats in a steady state, instead of estimating `x0`.
+
+## Raw tracks and artefacts
+
+You need this part only to look at other tracks or cases than the cleaned CardioQ set.
 
 ```python
 from vitaldb_hemo import data
 
-names = sorted(data.tracks())  # all 196 track names, e.g. "CardioQ/FLOW"
-cases = data.find_cases(["CardioQ/FLOW", "CardioQ/SV", "SNUADC/ART"])  # 27 cases
-art, fs = data.load_wave(19, "SNUADC/ART")  # 500 Hz, NaN where missing
-t, sv = data.load_numeric(19, "CardioQ/SV")  # one value per beat
-art125 = data.resample(art, fs, 125)  # anti-aliased
-flags = data.artefact_flags(art, fs)  # dict of boolean masks
+names = sorted(data.tracks())  # all 196 track names
+cases = data.find_cases(["CardioQ/FLOW", "CardioQ/SV", "SNUADC/ART"])  # cases with all of them
+art, fs = data.load_wave(19, "SNUADC/ART")  # a waveform at its own rate (500 Hz), NaN where missing
+t, sv = data.load_numeric(19, "CardioQ/SV")  # a value recorded once per beat, with its times
+art125 = data.resample(art, fs, 125)  # to another rate, filtered so it does not alias
+flags = data.artefact_flags(art, fs)  # boolean masks of artefacts, by type
 ```
-
-Case files are cached in `~/.cache/vitaldb-hemo`, or in the folder named by the `VITALDB_HEMO_CACHE` environment variable.
 
 ![Number of VitalDB cases per haemodynamic monitor](docs/img/find_cases.png)
 
@@ -80,11 +139,18 @@ A whole case: the arterial line is zeroed at the start and end, flushed a few ti
 
 ![A line flush: zeroing, then pressure plateaus with no pulse](docs/img/case19_flush.png)
 
-The cuff is easy to miss: the arterial-line pressure decays for about 20 s with no pulse, while the aortic flow keeps beating as before.
+The cuff is easy to miss: the arterial pressure decays for about 20 s with no pulse, while the aortic flow keeps beating as before.
 
 ![Cuff inflation on the arterial-line arm](docs/img/case19_cuff.png)
 
-`docs/make_figures.py` regenerates these figures.
+## Development
+
+```sh
+uv run pytest  # tests
+uv run python docs/make_figures.py  # regenerate docs/img (downloads the cases it shows)
+```
+
+The Windkessel models and the fitter are ported from the Julia package [windkessel-id](https://github.com/hpigot/windkessel-id), and the tests check them against its reference outputs.
 
 ## Data licence and attribution
 
@@ -93,8 +159,6 @@ No VitalDB data is included in this repository. Case files are downloaded on dem
 > Lee HC, Park Y, Yoon SB, Yang SM, Park D, Jung CW. VitalDB, a high-fidelity multi-parameter vital signs database in surgical patients. *Sci Data* 9, 279 (2022). https://doi.org/10.1038/s41597-022-01411-5
 
 This project is not affiliated with or endorsed by the VitalDB team.
-
-The Windkessel models and the batch fitter are ported from the Julia package [windkessel-id](https://github.com/hpigot/windkessel-id).
 
 ## AI assistance
 
