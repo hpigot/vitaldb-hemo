@@ -74,23 +74,24 @@ class Calibrated:
     minutes: pd.DataFrame  # case, t [s], hours since calibration, sv, est, map, dmap, error
 
 
-def calibrated(table: pd.DataFrame, drive, minutes: float = 15.0, step: int = 5) -> Calibrated:
-    """Calibrate SV = k drive on the first minutes of usable windows of each case; evaluate the rest.
+def calibrated(table: pd.DataFrame, proxy, minutes: float = 15.0, step: int = 5) -> Calibrated:
+    """Calibrate SV = k proxy on the first minutes of usable windows of each case; evaluate the rest.
 
     table: usable windows with columns case, t0, t1, sv (device) and map, as cardioq.table gives.
-    drive: a column name of table or an array, one value per row (NaN where the estimator has
-    none, e.g. while a filter warms up). Per case, k is the median of sv / drive over the
+    proxy: a stroke volume proxy, a quantity that SV is assumed proportional to, as a column
+    name of table or an array with one value per row (NaN where the estimator has none, e.g.
+    while a filter warms up). Per case, k is the median of sv / proxy over the
     windows that make up the first minutes of usable time; those windows are left out of the
     evaluation. The rest is averaged over whole minutes before comparing, and the concordance
     uses changes over step minutes. In minutes: dmap = ln(MAP / median MAP of the calibration)
     and error = ln(est / sv), for plotting the error against the change in MAP or the time.
     """
-    d = table.assign(drive=table[drive] if isinstance(drive, str) else np.asarray(drive, float))
+    d = table.assign(proxy=table[proxy] if isinstance(proxy, str) else np.asarray(proxy, float))
     rows, parts, conc = [], [], []
     for case, g in d.sort_values(["case", "t0"]).groupby("case", sort=False):
         cal = (g.t1 - g.t0).cumsum() <= 60 * minutes
-        k = float(np.nanmedian(g.sv[cal] / g.drive[cal]))
-        e = g[~cal].assign(est=k * g.drive[~cal], m=g.t0[~cal] // 60)
+        k = float(np.nanmedian(g.sv[cal] / g.proxy[cal]))
+        e = g[~cal].assign(est=k * g.proxy[~cal], m=g.t0[~cal] // 60)
         m = e.groupby("m")[["t0", "sv", "est", "map"]].mean().dropna()
         if len(m) < 2:
             continue

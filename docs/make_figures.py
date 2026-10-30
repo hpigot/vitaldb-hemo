@@ -270,9 +270,9 @@ def fits_over_time(d):
 def baseline_agreement():
     """The two baselines, calibrated on the first 15 usable minutes, 1 min means."""
     w = cardioq.table(cardioq.DEVELOPMENT)
-    drives = {"pulse pressure": w.pp, "Liljestrand-Zander": w.pp / (w.sbp + w.dbp)}
+    proxies = {"pulse pressure": w.pp, "Liljestrand-Zander": w.pp / (w.sbp + w.dbp)}
     fig, axs = plt.subplots(1, 2, figsize=(10, 4.2), sharey=True)
-    for ax, (name, x) in zip(axs, drives.items()):
+    for ax, (name, x) in zip(axs, proxies.items()):
         r = evaluate.calibrated(w, x)
         m, a = r.minutes, r.agreement
         for i, (cid, g) in enumerate(m.groupby("case")):

@@ -123,7 +123,7 @@ More options:
 
 ### 4. Estimate stroke volume and compare with the device
 
-A pressure-only estimate needs a scale, so it is calibrated against the device on the first minutes of each case and compared with the device on the rest. `evaluate.calibrated` does the bookkeeping. You give it a *drive*, one value per usable window that the estimate is proportional to, and it fits the scale `k` per case on the first 15 usable minutes, leaves those windows out, averages the rest over whole minutes and compares them with the device SV. Two simple drives make the baselines: pulse pressure, and the Liljestrand-Zander formula PP/(SBP + DBP), the best of eight simple pressure formulas compared by [Sun et al. (2009)](https://doi.org/10.1097/CCM.0b013e3181930174).
+A pressure-only estimate needs a scale, so it is calibrated against the device on the first minutes of each case and compared with the device on the rest. `evaluate.calibrated` does the bookkeeping. You give it a *stroke volume proxy*, one value per usable window that stroke volume is assumed proportional to, and it fits the calibration factor `k` per case on the first 15 usable minutes, leaves those windows out, averages the rest over whole minutes and compares them with the device SV. Two simple proxies make the baselines: pulse pressure, and the Liljestrand-Zander formula PP/(SBP + DBP), the best of eight simple pressure formulas compared by [Sun et al. (2009)](https://doi.org/10.1097/CCM.0b013e3181930174).
 
 ```python
 from vitaldb_hemo import evaluate
@@ -149,7 +149,7 @@ On the development cases:
 | Liljestrand-Zander | 22, 20, 22, 26 % | 35 % | 0.90 (20 pairs) |
 | stroke volume held at its calibration value | 26, 17, 31, 38 % | 38 % | 0.25 (20 pairs) |
 
-The last row is a reminder to look at trending too: an estimate that never changes can have an acceptable percentage error when the stroke volume changes little. The Liljestrand-Zander plot also slopes downwards, so it follows only part of each change. These are the numbers a model-based estimate has to beat.
+The last row is a reminder to look at trending too: an estimate that never changes can have an acceptable percentage error when the stroke volume changes little. The Liljestrand-Zander plot also slopes downwards. Part of that is noise in the device values, which tilts any Bland-Altman plot downwards; regressing the device SV on the estimate within a case shows how much of each change the estimate actually follows. These are the numbers a model-based estimate has to beat.
 
 ### 5. Replay a case
 
