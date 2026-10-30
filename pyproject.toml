@@ -1,6 +1,6 @@
 [project]
 name = "vitaldb-hemo"
-version = "0.1.0"
+version = "0.2.0"
 description = "VitalDB haemodynamics and Windkessel model identification"
 readme = "README.md"
 license = "BSD-3-Clause"
