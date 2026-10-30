@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from vitaldb_hemo import evaluate
 
@@ -35,3 +36,25 @@ def test_concordance():
     # no change is taken from one subject to the next: 91 -> 80 is dropped
     rate, n = evaluate.concordance(est, ref, subject=[1, 1, 1, 1, 2, 2], exclusion=0.05)
     assert n == 3 and np.isclose(rate, 2 / 3)
+
+
+def test_calibrated_scale_exclusion_and_pooling():
+    # two cases of 2 h of 10 s windows; the drive is SV / 3 (case 1) and SV / 5 (case 2)
+    t0 = np.arange(720) * 10.0
+    rows = []
+    for case, k in ((1, 3.0), (2, 5.0)):
+        sv = 70 + 10 * np.sin(t0 / 900)
+        rows.append(
+            pd.DataFrame(
+                {"case": case, "t0": t0, "t1": t0 + 10, "sv": sv, "map": 80.0, "x": sv / k}
+            )
+        )
+    table = pd.concat(rows, ignore_index=True)
+    r = evaluate.calibrated(table, "x")
+    assert np.allclose(r.per_case.k, [3, 5]) and np.allclose(r.per_case.percentage_error, 0)
+    assert r.minutes.hours.min() >= 0 and len(r.minutes) == 2 * (120 - 15)  # calibration left out
+    # a drive that overestimates by 10 % after the calibration shows up as a bias of 7 mL
+    table.loc[table.t0 >= 900, "x"] *= 1.1
+    r = evaluate.calibrated(table, "x")
+    assert np.allclose(r.minutes.error, np.log(1.1)) and abs(r.agreement.bias - 7) < 0.1
+    assert r.agreement.n == len(r.minutes) and r.concordance[1] >= 0

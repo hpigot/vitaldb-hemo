@@ -11,6 +11,7 @@ monitors to measure trends in cardiac output. Anesth Analg 2010;111:1180-1192.
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 
 
 @dataclass
@@ -63,3 +64,55 @@ def concordance(est, ref, subject=None, exclusion=0.15) -> tuple[float, int]:
     n = int(keep.sum())
     rate = float(np.mean(np.sign(de[keep]) == np.sign(dr[keep]))) if n else np.nan
     return rate, n
+
+
+@dataclass
+class Calibrated:
+    per_case: pd.DataFrame  # case, k, bias, percentage_error, concordance, pairs, minutes
+    agreement: Agreement  # pooled over cases, repeated measures
+    concordance: tuple[float, int]  # pooled over cases: (rate, pairs)
+    minutes: pd.DataFrame  # case, t [s], hours since calibration, sv, est, map, dmap, error
+
+
+def calibrated(table: pd.DataFrame, drive, minutes: float = 15.0, step: int = 5) -> Calibrated:
+    """Calibrate SV = k drive on the first minutes of usable windows of each case; evaluate the rest.
+
+    table: usable windows with columns case, t0, t1, sv (device) and map, as cardioq.table gives.
+    drive: a column name of table or an array, one value per row (NaN where the estimator has
+    none, e.g. while a filter warms up). Per case, k is the median of sv / drive over the
+    windows that make up the first minutes of usable time; those windows are left out of the
+    evaluation. The rest is averaged over whole minutes before comparing, and the concordance
+    uses changes over step minutes. In minutes: dmap = ln(MAP / median MAP of the calibration)
+    and error = ln(est / sv), for plotting the error against the change in MAP or the time.
+    """
+    d = table.assign(drive=table[drive] if isinstance(drive, str) else np.asarray(drive, float))
+    rows, parts, conc = [], [], []
+    for case, g in d.sort_values(["case", "t0"]).groupby("case", sort=False):
+        cal = (g.t1 - g.t0).cumsum() <= 60 * minutes
+        k = float(np.nanmedian(g.sv[cal] / g.drive[cal]))
+        e = g[~cal].assign(est=k * g.drive[~cal], m=g.t0[~cal] // 60)
+        m = e.groupby("m")[["t0", "sv", "est", "map"]].mean().dropna()
+        if len(m) < 2:
+            continue
+        m = m.assign(
+            case=case,
+            hours=(m.t0 - g.t1[cal].max()) / 3600,
+            dmap=np.log(m["map"] / g["map"][cal].median()),
+            error=np.log(m.est / m.sv),
+        ).rename(columns={"t0": "t"})
+        a = agreement(m.est, m.sv)
+        c = concordance(m.est.values[::step], m.sv.values[::step], exclusion=0.15)
+        conc.append(m.iloc[::step])
+        rows.append((case, k, a.bias, a.percentage_error, c[0], c[1], len(m)))
+        parts.append(m)
+    per_case = pd.DataFrame(
+        rows, columns=["case", "k", "bias", "percentage_error", "concordance", "pairs", "minutes"]
+    )
+    mm = pd.concat(parts, ignore_index=True)
+    cc = pd.concat(conc, ignore_index=True)
+    return Calibrated(
+        per_case,
+        agreement(mm.est, mm.sv, mm.case),
+        concordance(cc.est, cc.sv, cc.case),
+        mm[["case", "t", "hours", "sv", "est", "map", "dmap", "error"]],
+    )

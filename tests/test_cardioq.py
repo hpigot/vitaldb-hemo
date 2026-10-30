@@ -27,6 +27,8 @@ def test_windows_recover_gain_and_delay_and_reject_bad_windows():
     assert w.reason.tolist() == ["", "", "", "gain", "", "missing", "", "saturated"] + [""] * 4
     assert np.allclose(w.delay[w.ok], delay, atol=0.02)  # onsets on 16 Hz low-pass
     assert (w.beats[w.ok] >= 12).all()
+    assert np.allclose(w.sbp[w.ok], 100, atol=1)
+    assert np.allclose(w.pp[w.ok], w.sbp[w.ok] - w.dbp[w.ok])
 
 
 def test_case_lists():

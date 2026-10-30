@@ -66,6 +66,12 @@ def load(caseid: int, length: float = 10.0) -> Case:
     return Case(caseid, fs, p, q, gain, w)
 
 
+def table(caseids: list[int] | None = None) -> pd.DataFrame:
+    """The usable windows of several cases (default: all 24), with a column case."""
+    ids = cases() if caseids is None else caseids
+    return pd.concat([load(c).windows.query("ok").assign(case=c) for c in ids], ignore_index=True)
+
+
 def _saturated(v):
     return v >= 0.95 * np.nanmax(v)
 
@@ -88,7 +94,8 @@ def windows(
     volume matches the device's SV, which is its nomogram estimate of total stroke
     volume, not of descending-aortic flow alone.
 
-    Columns: t0, t1 [s]; beats (pressure onsets); map [mmHg]; hr, sv: device means;
+    Columns: t0, t1 [s]; beats (pressure onsets); map [mmHg]; sbp, dbp, pp [mmHg]: means over
+    the window's beats (by onset) that beats.features marks ok; hr, sv: device means;
     delay [s]: median lag from flow onset to pressure onset (about +-20 ms, as onsets are
     placed on a 16 Hz low-pass); ratio: window gain over case
     gain; ok; reason: the first check that failed, in this order:
@@ -103,6 +110,8 @@ def windows(
     sat = _saturated(v)
     on_p = beats.onsets(p, fs)
     on_v = beats.onsets(v, fs)
+    f = beats.features(p, fs, on_p)
+    f = f[f.ok]
     max_delay = 0.25  # s, longest plausible flow-to-pressure transit
     rows = []
     for a in starts:
@@ -129,12 +138,16 @@ def windows(
             reason = "beats"
         else:
             reason = ""
+        fb = f[(f.t >= t0) & (f.t < t1)]
         rows.append(
             {
                 "t0": t0,
                 "t1": t1,
                 "beats": len(op),
                 "map": np.nanmean(ps) if not np.isnan(ps).all() else np.nan,
+                "sbp": fb.sbp.mean(),
+                "dbp": fb.dbp.mean(),
+                "pp": fb.pp.mean(),
                 "hr": dev_hr,
                 "sv": dev_sv,
                 "delay": np.median(lag) if len(lag) else np.nan,
