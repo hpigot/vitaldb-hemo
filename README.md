@@ -44,6 +44,7 @@ cardioq.DEVELOPMENT  # [19, 468, 963, 1602]: develop your methods on these, eval
 c = cardioq.load(19)  # c.p, c.q (whole case), c.fs = 180 Hz, c.windows
 w = c.windows[c.windows.ok]  # usable windows only, as a pandas DataFrame
 t, p, q = c.segment(w.t0.iloc[0], w.t1.iloc[0])  # time [s], pressure, flow of the first one
+dev = cardioq.table(cardioq.DEVELOPMENT)  # usable windows of several cases, with a column case
 ```
 
 ![Case 19: which 10 s windows are usable, and one of them](docs/img/case19_windows.png)
@@ -55,6 +56,7 @@ t, p, q = c.segment(w.t0.iloc[0], w.t1.iloc[0])  # time [s], pressure, flow of t
 | `t0`, `t1` | Start and end of the window [s from the start of the case]. |
 | `beats` | Number of beats in the pressure. |
 | `map` | Mean arterial pressure [mmHg]. |
+| `sbp`, `dbp`, `pp` | Systolic, diastolic and pulse pressure [mmHg], averaged over the window's beats. |
 | `hr`, `sv` | Device heart rate [1/min] and stroke volume [mL], averaged over the window. |
 | `delay` | Median delay from flow to pressure [s], accurate to about 20 ms. |
 | `ratio` | How well the case's flow scale fits this window (1 is perfect; see below). |
@@ -119,29 +121,44 @@ More options:
 - `free=[1, 1, 0]` keeps a parameter fixed at its starting value.
 - `x0="periodic"` assumes the window holds whole beats in a steady state, instead of estimating `x0`.
 
-### 4. Compare with the device
+### 4. Estimate stroke volume and compare with the device
 
-`evaluate` measures how well a stroke volume estimate agrees with the device stroke volume. Two simple baselines show how: stroke volume proportional to pulse pressure, and the Liljestrand-Zander formula, proportional to PP/(SBP + DBP), the best of eight simple pressure formulas compared by [Sun et al. (2009)](https://doi.org/10.1097/CCM.0b013e3181930174). Each has its factor calibrated on the first 5 usable minutes.
+A pressure-only estimate needs a scale, so it is calibrated against the device on the first minutes of each case and compared with the device on the rest. `evaluate.calibrated` does the bookkeeping. You give it a *drive*, one value per usable window that the estimate is proportional to, and it fits the scale `k` per case on the first 15 usable minutes, leaves those windows out, averages the rest over whole minutes and compares them with the device SV. Two simple drives make the baselines: pulse pressure, and the Liljestrand-Zander formula PP/(SBP + DBP), the best of eight simple pressure formulas compared by [Sun et al. (2009)](https://doi.org/10.1097/CCM.0b013e3181930174).
 
 ```python
-import numpy as np
-
 from vitaldb_hemo import evaluate
 
-f = beats.features(c.p, c.fs, beats.onsets(c.p, c.fs))  # beats of the whole case
-pp = f[f.ok].groupby(f.t // 10 * 10).pp.mean()  # mean pulse pressure per window, by t0
-lz = (f.pp / (f.sbp + f.dbp))[f.ok].groupby(f.t // 10 * 10).mean()  # Liljestrand-Zander: use lz for pp below
-est = pp.reindex(w.t0).to_numpy() * np.mean(w.sv[:30] / pp.reindex(w.t0[:30]).to_numpy())
-a = evaluate.agreement(est[30:], w.sv[30:])
-a.bias, a.loa, a.percentage_error  # mL, mL, %
-rate, n = evaluate.concordance(est[30::30], w.sv[30::30])  # direction of 5 min changes
+r = evaluate.calibrated(dev, dev.pp / (dev.sbp + dev.dbp))  # Liljestrand-Zander
+r.per_case  # per case: k, bias, percentage_error, concordance, pairs, minutes
+r.agreement.percentage_error, r.agreement.loa  # pooled over the cases
+r.concordance  # pooled: (rate, pairs)
+r.minutes  # 1 min means: case, t, hours, sv, est, map, dmap, error
 ```
 
-`agreement` gives the Bland-Altman bias and 95 % limits of agreement, and the percentage error, 1.96 standard deviations of the difference divided by the mean device value. Monitors of cardiac output are usually held to a percentage error under 30 %. When you pool several cases, pass `subject=` with the case of each value: several values from one patient are not independent, and the limits would otherwise come out too narrow. `concordance` counts how often the estimate changes in the same direction as the device, leaving out changes under 15 %; above 0.9 is the usual criterion.
+Use NaN for windows where your estimator has no value yet, for example while a filter settles. `r.minutes` has what you need to plot the error, `ln(est / sv)`, against the time since calibration (`hours`) or against the change in mean pressure since calibration (`dmap`, `ln(MAP / MAP at calibration)`).
 
-![Agreement of the pulse-pressure baseline on the development cases](docs/img/development_baseline.png)
+The statistics are those of `evaluate.agreement` and `evaluate.concordance`. `agreement` gives the Bland-Altman bias and 95 % limits of agreement, and the percentage error, 1.96 standard deviations of the difference divided by the mean device value. Monitors of cardiac output are usually held to a percentage error under 30 %. Pooled over cases it uses repeated-measures limits (`subject=`): several values from one patient are not independent, and the limits would otherwise come out too narrow. `concordance` counts how often the estimate changes in the same direction as the device over 5 minutes, leaving out changes under 15 %; above 0.9 is the usual criterion.
 
-On the development cases, the pulse-pressure baseline has a percentage error of 23-36 % within single cases, 44 % pooled, and a concordance of 0.74 for 5 min changes. Liljestrand-Zander has 23-29 % within single cases and a concordance of 0.85, but 55 % pooled: the pooled figure also includes how far each patient's calibration is off for the rest of the case, and four patients pin that down poorly. Holding stroke volume constant at its calibration value gives 70 % pooled. These are the numbers a model-based estimate has to beat.
+![Agreement of the two baselines on the development cases](docs/img/development_baseline.png)
+
+On the development cases:
+
+| Estimate | Percentage error per case | Pooled | Concordance, pooled |
+|---|---|---|---|
+| pulse pressure | 23, 33, 22, 30 % | 33 % | 0.86 (35 pairs) |
+| Liljestrand-Zander | 22, 20, 22, 26 % | 35 % | 0.90 (20 pairs) |
+| stroke volume held at its calibration value | 26, 17, 31, 38 % | 38 % | 0.25 (20 pairs) |
+
+The last row is a reminder to look at trending too: an estimate that never changes can have an acceptable percentage error when the stroke volume changes little. The Liljestrand-Zander plot also slopes downwards, so it follows only part of each change. These are the numbers a model-based estimate has to beat.
+
+### 5. Replay a case
+
+```sh
+uv run python examples/replay.py 19                  # Liljestrand-Zander, calibrated on the first 15 min
+uv run python examples/replay.py 19 my_estimate.csv  # your estimate: columns t0 [s], est [mL]
+```
+
+The pressure scrolls past as it was recorded, and the estimate builds up next to the device stroke volume. `--speed` sets the seconds of case per second of replay, and `--save replay.gif --minutes 30` writes a short animation instead of opening a window.
 
 ## Raw tracks and artefacts
 
@@ -177,7 +194,9 @@ uv run pytest  # tests
 uv run python docs/make_figures.py  # regenerate docs/img (downloads the cases it shows)
 ```
 
-`examples/case19.ipynb` runs one case through the four quickstart steps with plots. It is run by hand, since it downloads data. The main design choices are recorded in [`docs/adr`](docs/adr).
+`examples/case19.ipynb` runs one case through the quickstart steps with plots. It is run by hand, since it downloads data. The main design choices are recorded in [`docs/adr`](docs/adr).
+
+For a project of your own that uses the package, [`.github/workflows/ci.yml`](.github/workflows/ci.yml) is a starting point for continuous integration: it runs ruff and pytest on every push and pull request. Tests that need VitalDB data are slow and download cases, so test your methods on simulated data, as `tests/` does here, and keep the data checks for a script you run by hand.
 
 The Windkessel models and the fitter are ported from the Julia package [WindkesselIdentification.jl](https://github.com/hpigot/WindkesselIdentification.jl), and the tests check them against its reference outputs.
 

@@ -267,31 +267,24 @@ def fits_over_time(d):
     fig.savefig(OUT / "development_fits.png", dpi=120)
 
 
-def baseline_agreement(d):
-    """Pulse-pressure baseline: SV = k PP, k from the first 5 usable minutes, 1 min means."""
-    parts = []
-    for cid, g in d.dropna().sort_values("t0").groupby("case"):
-        k = (g.sv / g.pp).iloc[:30].mean()
-        g = g.iloc[30:].assign(est=k * g.pp.iloc[30:], minute=g.t0.iloc[30:] // 60)
-        parts.append(g.groupby("minute")[["sv", "est"]].mean().assign(case=cid))
-    e = pd.concat(parts)
-    a = evaluate.agreement(e.est, e.sv, e.case)
-    fig, ax = plt.subplots(figsize=(7, 4.2))
-    for i, (cid, g) in enumerate(e.groupby("case")):
-        ax.plot((g.est + g.sv) / 2, g.est - g.sv, ".", ms=3, color=f"C{i}", label=f"case {cid}")
-    for v, ls in [(a.bias, "-"), (a.loa[0], "--"), (a.loa[1], "--")]:
-        ax.axhline(v, color="k", lw=1, ls=ls)
-    ax.text(ax.get_xlim()[1], a.loa[1], " upper LoA", va="bottom", ha="right", fontsize=7)
-    ax.text(ax.get_xlim()[1], a.loa[0], " lower LoA", va="top", ha="right", fontsize=7)
-    ax.set_xlabel("mean of estimate and device SV [mL]")
-    ax.set_ylabel("estimate - device SV [mL]")
-    ax.set_title(
-        f"Pulse-pressure baseline: bias {a.bias:+.0f} mL, limits {a.loa[0]:.0f} to {a.loa[1]:+.0f} mL, "
-        f"percentage error {a.percentage_error:.0f} %",
-        fontsize=9,
-    )
-    ax.legend(fontsize=7, markerscale=2, loc="lower left")
-    ax.spines[["top", "right"]].set_visible(False)
+def baseline_agreement():
+    """The two baselines, calibrated on the first 15 usable minutes, 1 min means."""
+    w = cardioq.table(cardioq.DEVELOPMENT)
+    drives = {"pulse pressure": w.pp, "Liljestrand-Zander": w.pp / (w.sbp + w.dbp)}
+    fig, axs = plt.subplots(1, 2, figsize=(10, 4.2), sharey=True)
+    for ax, (name, x) in zip(axs, drives.items()):
+        r = evaluate.calibrated(w, x)
+        m, a = r.minutes, r.agreement
+        for i, (cid, g) in enumerate(m.groupby("case")):
+            ax.plot((g.est + g.sv) / 2, g.est - g.sv, ".", ms=3, color=f"C{i}", label=f"case {cid}")
+        for v, ls in [(a.bias, "-"), (a.loa[0], "--"), (a.loa[1], "--")]:
+            ax.axhline(v, color="k", lw=1, ls=ls)
+        ax.set_xlabel("mean of estimate and device SV [mL]")
+        pe = ", ".join(f"{v:.0f}" for v in r.per_case.percentage_error)
+        ax.set_title(f"{name}: percentage error {pe} % per case", fontsize=9)
+        ax.spines[["top", "right"]].set_visible(False)
+    axs[0].set_ylabel("estimate - device SV [mL]")
+    axs[0].legend(fontsize=7, markerscale=2, loc="lower left")
     credit(fig)
     fig.tight_layout()
     fig.savefig(OUT / "development_baseline.png", dpi=120)
@@ -309,4 +302,4 @@ if __name__ == "__main__":
     case_set()
     d = development_windows()
     fits_over_time(d)
-    baseline_agreement(d)
+    baseline_agreement()
