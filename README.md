@@ -149,7 +149,7 @@ On the development cases:
 | Liljestrand-Zander | 22, 20, 22, 26 % | 35 % | 0.90 (20 pairs) |
 | stroke volume held at its calibration value | 26, 17, 31, 38 % | 38 % | 0.25 (20 pairs) |
 
-The last row is a reminder to look at trending too: an estimate that never changes can have an acceptable percentage error when the stroke volume changes little. The Liljestrand-Zander plot also slopes downwards. Part of that is noise in the device values, which tilts any Bland-Altman plot downwards; regressing the device SV on the estimate within a case shows how much of each change the estimate actually follows. These are the numbers a model-based estimate has to beat.
+The last row is why trending is reported too: an estimate that never changes can have an acceptable percentage error when the stroke volume changes little. The Liljestrand-Zander plot also slopes downwards. Part of that is noise in the device values, which tilts any Bland-Altman plot downwards; regressing the device SV on the estimate within a case shows how much of each change the estimate actually follows. These are the numbers a model-based estimate has to beat.
 
 ### 5. Replay a case
 
