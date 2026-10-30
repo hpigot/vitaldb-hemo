@@ -121,7 +121,7 @@ More options:
 
 ### 4. Compare with the device
 
-`evaluate` measures how well a stroke volume estimate agrees with the device stroke volume. As an example, a simple baseline: stroke volume proportional to pulse pressure, with the factor calibrated on the first 5 usable minutes.
+`evaluate` measures how well a stroke volume estimate agrees with the device stroke volume. Two simple baselines show how: stroke volume proportional to pulse pressure, and the Liljestrand-Zander formula, proportional to PP/(SBP + DBP), the best of eight simple pressure formulas compared by [Sun et al. (2009)](https://doi.org/10.1097/CCM.0b013e3181930174). Each has its factor calibrated on the first 5 usable minutes.
 
 ```python
 import numpy as np
@@ -130,6 +130,7 @@ from vitaldb_hemo import evaluate
 
 f = beats.features(c.p, c.fs, beats.onsets(c.p, c.fs))  # beats of the whole case
 pp = f[f.ok].groupby(f.t // 10 * 10).pp.mean()  # mean pulse pressure per window, by t0
+lz = (f.pp / (f.sbp + f.dbp))[f.ok].groupby(f.t // 10 * 10).mean()  # Liljestrand-Zander: use lz for pp below
 est = pp.reindex(w.t0).to_numpy() * np.mean(w.sv[:30] / pp.reindex(w.t0[:30]).to_numpy())
 a = evaluate.agreement(est[30:], w.sv[30:])
 a.bias, a.loa, a.percentage_error  # mL, mL, %
@@ -140,7 +141,7 @@ rate, n = evaluate.concordance(est[30::30], w.sv[30::30])  # direction of 5 min 
 
 ![Agreement of the pulse-pressure baseline on the development cases](docs/img/development_baseline.png)
 
-On the development cases, the pulse-pressure baseline has a percentage error of 44 % pooled (23-36 % within single cases) and a concordance of 0.72 for 5 min changes. Holding stroke volume constant at its calibration value gives 70 %. A model-based estimate should do better than both.
+On the development cases, the pulse-pressure baseline has a percentage error of 23-36 % within single cases, 44 % pooled, and a concordance of 0.74 for 5 min changes. Liljestrand-Zander has 23-29 % within single cases and a concordance of 0.85, but 55 % pooled: the pooled figure also includes how far each patient's calibration is off for the rest of the case, and four patients pin that down poorly. Holding stroke volume constant at its calibration value gives 70 % pooled. These are the numbers a model-based estimate has to beat.
 
 ## Raw tracks and artefacts
 
